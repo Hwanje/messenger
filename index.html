@@ -15,7 +15,7 @@
         .btn-primary { background: #007aff; color: white; width: 100%; }
         #chat-box { height: 400px; border: 1px solid #333; overflow-y: auto; background: #1e1e1e; padding: 15px; margin-bottom: 10px; border-radius: 10px; }
         .header { display: flex; justify-content: space-between; align-items: center; background: #222; padding: 10px; border-radius: 8px; margin-bottom: 10px; }
-        .timer { color: #ff3b30; font-weight: bold; font-size: 0.9em; }
+        .timer { color: #ff3b30; font-weight: bold; font-size: 0.8em; }
         .otp-display { color: #007aff; font-size: 1.5em; font-weight: bold; }
     </style>
 </head>
@@ -47,7 +47,10 @@
                     <span id="chat-otp-display" style="color:#007aff; margin-left:10px; font-size:0.9em;"></span>
                     <span id="chat-timer" class="timer"></span>
                 </div>
-                <button style="background:#444; color:white; font-size:0.7em;" onclick="refreshOTP()">갱신</button>
+                <div>
+                    <button style="background:#444; color:white; font-size:0.7em;" onclick="refreshOTP()">갱신</button>
+                    <button style="background:#ff3b30; color:white; font-size:0.7em; margin-left:5px;" onclick="leaveRoom()">나가기</button>
+                </div>
             </div>
             <div id="chat-box"></div>
             <div style="display:flex; gap:5px;">
@@ -65,9 +68,8 @@
         let currentRoom = "";
         let timer = null;
         let timeLeft = 60;
-        let lastRefreshTime = 0; // 마지막 갱신 시각 저장
+        let lastRefreshTime = 0;
 
-        // 타이머 시작 및 자동 갱신 로직
         function startTimer() {
             timeLeft = 60;
             if(timer) clearInterval(timer);
@@ -78,19 +80,15 @@
                 
                 if(timeLeft <= 0) {
                     clearInterval(timer);
-                    refreshOTP(); // 0초 시 자동 갱신
+                    if(currentRoom) socket.emit('refresh_otp', {room: currentRoom});
                 }
             }, 1000);
         }
 
-        // OTP 수신 및 표시
         socket.on('display_otp', (data) => {
             document.getElementById('otp-area').classList.remove('hidden');
             document.getElementById('otp-display').innerText = data.code;
             document.getElementById('chat-otp-display').innerText = `CODE: ${data.code}`;
-            
-            // 최초 실행 시 갱신 시간 초기화
-            if (lastRefreshTime === 0) lastRefreshTime = Date.now();
             startTimer();
         });
 
@@ -120,28 +118,19 @@
             document.getElementById('current-room-title').innerText = currentRoom;
         }
 
-        // 메시지 전송 (중복 방지를 위해 화면 추가 로직 제거)
         function sendMessage() {
             const input = document.getElementById('msg-input');
             if(!input.value || !currentRoom) return;
-            
             const encrypted = CryptoJS.AES.encrypt(input.value, E2EE_KEY, { iv: E2EE_IV }).toString();
             socket.emit('send_secure_msg', {room: currentRoom, msg: encrypted});
             input.value = ""; 
         }
 
-        // 서버로부터 받은 메시지 처리
         socket.on('receive_secure_msg', (data) => {
-            try {
-                const decrypted = CryptoJS.AES.decrypt(data.msg, E2EE_KEY, { iv: E2EE_IV }).toString(CryptoJS.enc.Utf8);
-                const myNick = document.getElementById('user-nickname').value;
-                
-                // 내가 보낸 경우 "나(닉네임)"으로 표시
-                const displayName = (data.sender === myNick) ? `나(${data.sender})` : data.sender;
-                addMsg(displayName, decrypted);
-            } catch(e) {
-                console.error("복호화 오류:", e);
-            }
+            const decrypted = CryptoJS.AES.decrypt(data.msg, E2EE_KEY, { iv: E2EE_IV }).toString(CryptoJS.enc.Utf8);
+            const myNick = document.getElementById('user-nickname').value;
+            const displayName = (data.sender === myNick) ? `나(${data.sender})` : data.sender;
+            addMsg(displayName, decrypted);
         });
 
         function addMsg(s, t) {
@@ -150,14 +139,12 @@
             box.scrollTop = box.scrollHeight;
         }
 
-        // 30초 갱신 제한 로직 추가
         function refreshOTP() {
             const now = Date.now();
             if (now - lastRefreshTime < 30000) {
                 const wait = Math.ceil((30000 - (now - lastRefreshTime)) / 1000);
-                return alert(`보안을 위해 ${wait}초 후에 다시 갱신할 수 있습니다.`);
+                return alert(`${wait}초 후에 다시 갱신 가능합니다.`);
             }
-
             const room = currentRoom || document.getElementById('room-name').value;
             if(room) {
                 socket.emit('refresh_otp', {room: room});
@@ -165,12 +152,22 @@
             }
         }
 
+        function leaveRoom() {
+            if(confirm("정말 방에서 나가시겠습니까?")) {
+                socket.emit('leave_room', {room: currentRoom});
+            }
+        }
+
+        socket.on('leave_success', () => {
+            location.reload();
+        });
+
         socket.on('notification', (data) => {
-            document.getElementById('chat-box').innerHTML += `<div style="text-align:center;color:gray;font-size:0.8em;margin:5px 0;">${data.msg}</div>`;
+            const box = document.getElementById('chat-box');
+            box.innerHTML += `<div style="text-align:center;color:gray;font-size:0.8em;margin:5px 0;">${data.msg}</div>`;
         });
 
         socket.on('join_fail', (data) => alert(data.msg));
-        function leaveRoom() { location.reload(); }
     </script>
 </body>
 </html>
