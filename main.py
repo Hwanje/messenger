@@ -1,21 +1,23 @@
 from fastapi import FastAPI
 import socketio
 
-# Socket.io 서버 설정 (CORS 허용 필수)
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
 app = FastAPI()
 socket_app = socketio.ASGIApp(sio, app)
 
 @sio.event
-async def connect(sid, environ):
-    print(f"User Connected: {sid}")
+async def join_room(sid, data):
+    room = data['room']
+    sio.enter_room(sid, room)
+    print(f"[{room}] 유저 접속: {sid}")
+    await sio.emit('notification', {'msg': f"{sid} 님이 입장했습니다."}, room=room)
 
 @sio.event
-async def message(sid, data):
-    # 클라이언트에서 암호화된 데이터를 받아 그대로 배달(Relay)만 함
-    # 서버는 복호화 키가 없으므로 내용을 읽을 수 없음 (Zero-Knowledge)
-    await sio.emit('message', data)
+async def send_secure_msg(sid, data):
+    # data['msg']는 이미 브라우저에서 암호화된 바이너리/텍스트 데이터여야 함
+    room = data['room']
+    await sio.emit('receive_secure_msg', {'msg': data['msg'], 'sender': sid}, room=room)
 
 @app.get("/")
 async def index():
-    return {"status": "Secure Server is Running"}
+    return {"status": "Secure Messaging Server is Running"}
