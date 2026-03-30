@@ -1,46 +1,64 @@
 import flet as ft
 import socketio
-from cryptography.fernet import Fernet
-
-SECRET_KEY = Fernet.generate_key() 
-cipher = Fernet(SECRET_KEY)
+import time
 
 sio = socketio.Client()
 
 def main(page: ft.Page):
-    page.title = "VaultChat - E2EE Messenger"
-    page.theme_mode = ft.ThemeMode.DARK
+    page.title = "VaultChat - OTP Invitation"
     
-    chat_messages = ft.Column(scroll=ft.ScrollMode.ALWAYS, expand=True)
-    message_input = ft.TextField(hint_text="비밀 메시지 입력...", expand=True)
+    # UI 요소들
+    code_display = ft.Text("초대 코드: 버튼을 눌러 생성", size=20, weight="bold")
+    otp_input = ft.TextField(label="6자리 초대코드 입력", width=200)
+    chat_log = ft.Column(scroll=ft.ScrollMode.ALWAYS, expand=True)
+    msg_input = ft.TextField(hint_text="메시지...", expand=True)
 
-    def on_message(data):
-        # 서버에서 받은 암호문을 복호화
-        try:
-            decrypted_msg = cipher.decrypt(data['msg'].encode()).decode()
-            chat_messages.controls.append(ft.Text(f"상대방: {decrypted_msg}", color="green"))
-        except:
-            chat_messages.controls.append(ft.Text("알 수 없는 암호문 수신", color="red"))
+    # 이벤트 핸들러
+    def on_display_code(data):
+        code_display.value = f"현재 초대 코드: {data['code']} (60초 유효)"
         page.update()
 
-    sio.on('receive_secure_msg', on_message)
-
-    def send_click(e):
-        # 메시지를 보내기 전 암호화 (서버는 이 내용을 모름)
-        encrypted_msg = cipher.encrypt(message_input.value.encode()).decode()
-        sio.emit('send_secure_msg', {'msg': encrypted_msg, 'room': 'secret_room'})
-        
-        chat_messages.controls.append(ft.Text(f"나 (암호화됨): {message_input.value}", color="blue"))
-        message_input.value = ""
+    def on_join_success(data):
+        page.snack_bar = ft.SnackBar(ft.Text(data['msg']))
+        page.snack_bar.open = True
+        # 입장 성공 시 채팅 UI로 전환 로직 추가 가능
         page.update()
 
+    sio.on('display_code', on_display_code)
+    sio.on('join_success', on_join_success)
+
+    # 버튼 클릭 함수
+    def generate_code(e):
+        sio.emit('get_invite_code')
+
+    def join_room(e):
+        sio.emit('join_with_otp', {'code': otp_input.value, 'room': 'secret_room'})
+
+    def send_msg(e):
+        sio.emit('send_secure_msg', {'msg': msg_input.value, 'room': 'secret_room'})
+        msg_input.value = ""
+        page.update()
+
+    # 페이지 레이아웃
     page.add(
-        ft.Text("Secure Web Messenger", size=20, weight="bold"),
-        chat_messages,
-        ft.Row([message_input, ft.ElevatedButton("보내기", on_click=send_click)])
+        ft.Tabs(
+            selected_index=0,
+            tabs=[
+                ft.Tab(text="방장 (코드생성)", content=ft.Column([
+                    code_display, 
+                    ft.ElevatedButton("새 코드 생성", on_click=generate_code)
+                ])),
+                ft.Tab(text="참가 (코드입력)", content=ft.Column([
+                    otp_input, 
+                    ft.ElevatedButton("입장하기", on_click=join_room)
+                ])),
+            ]
+        ),
+        ft.Divider(),
+        chat_log,
+        ft.Row([msg_input, ft.IconButton(ft.icons.SEND, on_click=send_msg)])
     )
-    
-    # Render 서버 주소를 여기에 넣으세요!
-    sio.connect('https://massenger-9oh6.onrender.com/') 
+
+    sio.connect('https://massenger-9oh6.onrender.com/')
 
 ft.app(target=main)
