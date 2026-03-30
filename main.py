@@ -73,16 +73,20 @@ async def refresh_otp(sid, data):
         new_code = totp.now()
         # 갱신된 코드를 해당 유저에게 다시 전송
         await sio.emit('display_otp', {'code': new_code}, to=sid)
-
 @sio.event
 async def send_secure_msg(sid, data):
     nickname = user_sessions.get(sid, "익명")
-    room = data.get('room')
-    await sio.emit('receive_secure_msg', {
-        'msg': data['msg'], 
-        'sender': nickname 
-    }, room=room)
-
+    room = data.get('room') # 클라이언트가 보낸 방 이름
+    
+    if room:
+        # 핵심: room=room 인자를 넣어 해당 방 멤버 전원에게 전송
+        await sio.emit('receive_secure_msg', {
+            'msg': data['msg'], 
+            'sender': nickname 
+        }, room=room)
+    else:
+        print(f"Error: Room not found for sid {sid}")
+        
 @sio.event
 async def leave_room(sid, data):
     room = data.get('room')
