@@ -126,7 +126,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origions='*', max_decode_size=10*1024*1024)
+sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*', max_decode_size=10*1024*1024)
 socket_app = socketio.ASGIApp(sio, app)
 
 # ============== 서버 데이터 구조 ==============
