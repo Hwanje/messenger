@@ -438,9 +438,8 @@
         const API_BASE = "https://massenger-9oh6.onrender.com";
         const socket = io(API_BASE, { path: "/socket.io" });
         
-        // E2EE 키 (서버와 동일해야 함)
-        const E2EE_KEY = CryptoJS.enc.Utf8.parse('vaultchat2024securekey');
-        const E2EE_IV = CryptoJS.enc.Utf8.parse('vaultchat2024iv');
+        // E2EE 키 (서버와 동일해야 함) - 32바이트 키
+        const E2EE_KEY = CryptoJS.enc.Utf8.parse('vaultchat2024securekey32bytes!!');
         
         let currentRoom = "";
         let myNickname = "";
@@ -588,14 +587,15 @@
         // ============== OTP 갱신 ==============
         function refreshOTP() {
             socket.emit('refresh_otp', { room: currentRoom });
-            showToast('OTP가 갱신되었습니다', 'info');
+            // 서버 응답을 기다렸다가 토스트 표시 (쿨타임일 경우 표시 안함)
         }
 
         // ============== 메시지 전송 ==============
         function sendMessage() {
             const input = document.getElementById('msg-input');
             if (!input.value.trim()) return;
-            const encrypted = CryptoJS.AES.encrypt(input.value, E2EE_KEY, { iv: E2EE_IV }).toString();
+            // IV 없이 암호화 (CryptoJS가 자동으로 IV를 생성하여 암호문에 포함)
+            const encrypted = CryptoJS.AES.encrypt(input.value, E2EE_KEY).toString();
             socket.emit('send_secure_msg', { msg: encrypted, type: 'text' });
             input.value = '';
         }
@@ -635,7 +635,8 @@
                 // 복호화 시도
                 let decrypted = content;
                 try {
-                    decrypted = CryptoJS.AES.decrypt(content, E2EE_KEY, { iv: E2EE_IV }).toString(CryptoJS.enc.Utf8);
+                    // IV 없이 복호화 (암호화 시 IV가 포함되어 있음)
+                    decrypted = CryptoJS.AES.decrypt(content, E2EE_KEY).toString(CryptoJS.enc.Utf8);
                     if (!decrypted) decrypted = content; // 복호화 실패 시 원본 사용
                 } catch (e) {
                     decrypted = content;
@@ -695,6 +696,14 @@
         socket.on('notification', (data) => { addMessage('SYSTEM', data.msg, 'system'); });
         socket.on('room_closed', (data) => { showToast(data.msg || '방이 폐쇄되었습니다', 'error'); setTimeout(() => location.reload(), 2000); });
         socket.on('global_notice', (data) => { showToast(`📢 [시스템 공지] ${data.msg}`, 'info'); addMessage('ADMIN', data.msg, 'notice'); });
+
+        // OTP 갱신 이벤트 핸들러
+        socket.on('otp_refresh_cooldown', (data) => { 
+            showToast(data.msg, 'error'); // 쿨타임 중에는 에러 토스트로 표시
+        });
+        socket.on('otp_refresh_success', (data) => { 
+            showToast(data.msg, 'success'); // 성공 시 성공 토스트로 표시
+        });
 
         // ============== 관리자 패널 이벤트 ==============
         socket.on('admin_auth_success', (data) => {

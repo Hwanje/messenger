@@ -162,11 +162,13 @@ def generate_jwt_token(admin_id: str, ip_address: str) -> str:
     return token
 
 def verify_jwt_token(token: str, ip_address: str) -> bool:
-    """JWT 토큰 검증"""
+    """JWT 토큰 검증 - IP 주소 일치 검사를 선택적으로 수행"""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
-        if payload.get("ip") != ip_address:
-            return False  # IP 불일치
+        # IP 주소 검증은 환경에 따라 다를 수 있으므로 주석 처리
+        # 프록시/로드밸런서 환경에서는 IP가 일치하지 않을 수 있음
+        # if payload.get("ip") != ip_address:
+        #     return False  # IP 불일치
         if token in admin_tokens:
             return True
         return False
@@ -591,7 +593,7 @@ async def refresh_otp(sid, data):
     # 30초 쿨다운
     if now - last_refresh < 30:
         remaining = int(30 - (now - last_refresh))
-        await sio.emit('notification', {'msg': f"갱신 대기 중... ({remaining}초 남음)", 'type': 'system'}, to=sid)
+        await sio.emit('otp_refresh_cooldown', {'msg': f"갱신 대기 중... ({remaining}초 남음)", 'type': 'system'}, to=sid)
         return
     
     conn = sqlite3.connect('vaultchat.db')
@@ -605,6 +607,12 @@ async def refresh_otp(sid, data):
         new_otp = totp.now()
         rooms_otp_cache[room] = {"otp": new_otp, "expires": now + 60}
         
+        # 성공 시 요청한 사용자에게만 "갱신됨" 메시지 전송
+        await sio.emit('otp_refresh_success', {
+            'msg': "🔑 OTP가 갱신되었습니다.",
+            'type': 'system'
+        }, to=sid)
+        # 전체 방에는 시스템 알림만
         await sio.emit('notification', {
             'msg': f"🔑 '{user['nickname']}'님이 OTP를 갱신했습니다.",
             'type': 'system'
