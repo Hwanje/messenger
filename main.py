@@ -507,30 +507,17 @@ async def join_with_otp(sid, data):
         return
     
     totp = pyotp.TOTP(secret, interval=60)
-    if totp.verify(otp_code):
+    if totp.verify(otp_code, valid_window=1):
+        # 방에만 입장하고, 닉네임은 아직 설정하지 않음
         await sio.enter_room(sid, room)
         user_sessions[sid] = {
-            "nickname": nickname,
             "room": room,
             "ip": ip_address
         }
-        
-        # 닉네임 중복 체크
-        c.execute("SELECT nickname FROM users WHERE nickname = ?", (nickname,))
-        if c.fetchone():
-            conn.close()
-            await sio.emit('nickname_fail', {'msg': "이미 사용 중인 닉네임입니다."}, to=sid)
-            await sio.leave_room(sid, room)
-            return
-        
-        # 사용자 등록
-        c.execute("INSERT INTO users (nickname, room, ip_address) VALUES (?, ?, ?)",
-                  (nickname, room, ip_address))
-        c.execute("UPDATE rooms SET user_count = user_count + 1 WHERE name = ?", (room,))
-        conn.commit()
         conn.close()
         
-        await sio.emit('join_success', {'room': room}, to=sid)
+        # OTP 검증 성공 - 닉네임 설정 다이얼로그 표시
+        await sio.emit('otp_verified', {'room': room}, to=sid)
         
         # 현재 방의 OTP 전송
         rooms_otp_cache[room] = {"otp": totp.now(), "expires": time.time() + 60}
@@ -565,12 +552,27 @@ async def set_nickname(sid, data):
     
     conn = sqlite3.connect('vaultchat.db')
     c = conn.cursor()
+    
+    # 방의 현재 인원 수 가져오기
+    c.execute("SELECT max_users, user_count FROM rooms WHERE name = ?", (room,))
+    room_result = c.fetchone()
+    if room_result:
+        max_users, current_count = room_result
+        if current_count >= max_users:
+            conn.close()
+            await sio.emit('nickname_fail', {'msg': "방이 가득 찼습니다."}, to=sid)
+            await sio.leave_room(sid, room)
+            return
+    
+    # 사용자 등록
     c.execute("INSERT INTO users (nickname, room, ip_address) VALUES (?, ?, ?)",
               (nickname, room, ip_address))
+    c.execute("UPDATE rooms SET user_count = user_count + 1 WHERE name = ?", (room,))
     conn.commit()
     conn.close()
     
     await sio.emit('nickname_success', to=sid)
+    await sio.emit('join_success', {'room': room}, to=sid)
     await sio.emit('notification', {
         'msg': f"'{nickname}'님이 입장했습니다.",
         'type': 'system',
@@ -715,6 +717,7 @@ async def send_secure_msg(sid, data):
     """암호화된 메시지 전송"""
     info = user_sessions.get(sid)
     if not info:
+        await sio.emit('notification', {'msg': "세션 정보가 없습니다. 방에 다시 입장해주세요.", 'type': 'system'}, to=sid)
         return
     
     msg = data.get('msg', '')
@@ -722,8 +725,14 @@ async def send_secure_msg(sid, data):
     file_name = data.get('fileName')
     file_type = data.get('fileType')
     room = info.get('room')
+    nickname = info.get('nickname')
     
     if not room:
+        await sio.emit('notification', {'msg': "방에 입장하지 않았습니다.", 'type': 'system'}, to=sid)
+        return
+    
+    if not nickname:
+        await sio.emit('nickname_required', {'msg': "닉네임을 먼저 설정해주세요."}, to=sid)
         return
     
     ip_address = info.get('ip', 'unknown')

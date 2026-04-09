@@ -483,11 +483,54 @@
         function joinRoom() {
             const room = document.getElementById('room-name').value.trim();
             const otp = getOTPValue();
-            const nickname = prompt('사용할 닉네임을 입력하세요:');
-            if (!nickname) { showToast('닉네임을 입력해주세요', 'error'); return; }
-            if (nickname.length < 2 || nickname.length > 20) { showToast('닉네임은 2~20자여야 합니다', 'error'); return; }
+            if (!room) { showToast('방 이름을 입력해주세요', 'error'); return; }
+            if (otp.length !== 6) { showToast('OTP 코드를 입력해주세요', 'error'); return; }
+            // 닉네임은 OTP 검증成功后 다이얼로그에서 입력
+            socket.emit('join_with_otp', { room: room, code: otp, nickname: '' });
+        }
+        
+        // ============== 닉네임 설정 다이얼로그 ==============
+        function showNicknameDialog(room) {
+            const dialog = document.createElement('div');
+            dialog.id = 'nickname-dialog';
+            dialog.innerHTML = `
+                <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-xl); padding: 32px; max-width: 400px; width: 90%;">
+                        <h3 style="margin: 0 0 20px 0; color: var(--text-primary); text-align: center;">🎭 닉네임 설정</h3>
+                        <p style="color: var(--text-muted); font-size: 13px; text-align: center; margin-bottom: 20px;">방 입장이 확인되었습니다. 사용할 닉네임을 입력해주세요.</p>
+                        <div class="input-group">
+                            <label class="input-label">닉네임 (2~20자)</label>
+                            <input type="text" id="nickname-input" placeholder="영문, 숫자, '_', '-' 사용 가능" maxlength="20">
+                        </div>
+                        <button class="btn btn-primary" onclick="submitNickname('${room}')">✓ 입장하기</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(dialog);
+            document.getElementById('nickname-input').focus();
+            
+            // Enter 키로 제출
+            document.getElementById('nickname-input').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') submitNickname(room);
+            });
+        }
+        
+        function submitNickname(room) {
+            const nickname = document.getElementById('nickname-input').value.trim();
+            if (!nickname || nickname.length < 2 || nickname.length > 20) {
+                showToast('닉네임은 2~20자여야 합니다', 'error');
+                return;
+            }
+            if (!/^[a-zA-Z0-9_-]+$/.test(nickname)) {
+                showToast('닉네임에는 영문, 숫자, "_", "-"만 사용 가능합니다', 'error');
+                return;
+            }
             myNickname = nickname;
-            socket.emit('join_with_otp', { room: room, code: otp, nickname: nickname });
+            socket.emit('set_nickname', { room: room, nickname: nickname });
+            
+            // 다이얼로그 제거
+            const dialog = document.getElementById('nickname-dialog');
+            if (dialog) dialog.remove();
         }
 
         // ============== 방 만들기 ==============
@@ -665,6 +708,16 @@
         socket.on('connect', () => { console.log('서버에 연결되었습니다'); });
         socket.on('disconnect', () => { showToast('서버와 연결이 끊어졌습니다', 'error'); });
 
+        // OTP 검증 성공 - 닉네임 설정 다이얼로그 표시
+        socket.on('otp_verified', (data) => {
+            currentRoom = data.room;
+            document.getElementById('auth-section').classList.add('hidden');
+            document.getElementById('chat-section').classList.remove('hidden');
+            document.getElementById('current-room-title').textContent = currentRoom;
+            // 닉네임 설정 다이얼로그 표시
+            showNicknameDialog(currentRoom);
+        });
+
         socket.on('join_success', (data) => {
             currentRoom = data.room;
             document.getElementById('auth-section').classList.add('hidden');
@@ -675,6 +728,11 @@
 
         socket.on('join_fail', (data) => { showToast(data.msg || '방 참가 실패', 'error'); });
         socket.on('nickname_fail', (data) => { showToast(data.msg || '닉네임 설정 실패', 'error'); });
+        socket.on('nickname_required', (data) => { 
+            showToast(data.msg || '닉네임을 먼저 설정해주세요', 'error');
+            // 닉네임 설정 다이얼로그 표시
+            showNicknameDialog(currentRoom);
+        });
         socket.on('nickname_success', () => { showToast('채팅을 시작하세요!', 'success'); });
 
         socket.on('display_otp', (data) => {
