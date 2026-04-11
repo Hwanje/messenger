@@ -439,7 +439,7 @@
         const socket = io(API_BASE, { path: "/socket.io" });
         
         // E2EE 키 (서버와 동일해야 함) - 32바이트 키
-        const E2EE_KEY = CryptoJS.enc.Utf8.parse('vaultchat2024securekey32bytes!!');
+        const E2EE_KEY = CryptoJS.enc.Utf8.parse('vaultchat2024securekey32bytes!!x');
         
         let currentRoom = "";
         let myNickname = "";
